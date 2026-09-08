@@ -1,0 +1,24 @@
+name: sync-images (图片同步)
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  push:
+    paths: ['.github/workflows/sync-images.yml', 'worker/sql/sync_images.sql']
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: load-secrets
+        run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
+      - name: run-sync-images
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CF_API_TOKEN }}
+        working-directory: worker
+        run: npx wrangler d1 execute zdw --file=sql/sync_images.sql --remote

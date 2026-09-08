@@ -1,0 +1,28 @@
+name: ai-classify (AI识别)
+
+on:
+  schedule:
+    - cron: '0 10 * * *'
+  push:
+    paths: ['.github/workflows/ai-classify.yml', 'scripts/tasks/']
+  workflow_dispatch:
+    inputs:
+      max_images:
+        description: 'max images (default 200)'
+        required: false
+        default: '200'
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.13', cache: 'pip' }
+      - name: install-deps
+        run: pip install httpx
+      - name: load-secrets
+        run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
+      - name: run-ai-classify
+        run: python scripts/tasks/ai_classify_onetime.py ${{ github.event.inputs.max_images || '200' }}
