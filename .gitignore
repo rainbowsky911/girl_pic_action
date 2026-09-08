@@ -2,8 +2,8 @@ node_modules/
 .wrangler/
 *.log
 __pycache__/
-secrets_template.json
 secrets*.json
+!secrets_template_example.json
 .env
 *.key
 cookie.json
