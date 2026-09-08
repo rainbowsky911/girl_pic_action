@@ -1,25 +1,25 @@
 name: crawler (爬虫)
 
-# 爬虫: 每12小时执行一次
-# 用 playwright 爬取图片, 上传 R2, 写入 D1
-# 公开仓库不限 Actions 时长
+# 爬虫: 每天执行一次
+# 用 playwright 爬取400页, 上传 R2, 写入 D1
+# 降并发防限流: 3页并发, 10图并发, 2-5秒随机延迟
 
 on:
   schedule:
-    - cron: '0 */12 * * *'
+    - cron: '0 0 * * *'
   push:
     paths: ['.github/workflows/crawler.yml', 'scripts/tasks/crawler_onetime.py', 'scripts/tasks/d1_client.py']
   workflow_dispatch:
     inputs:
       pages:
-        description: '爬取页数 (默认20)'
+        description: '爬取页数 (默认400)'
         required: false
-        default: '20'
+        default: '400'
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 

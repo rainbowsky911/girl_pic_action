@@ -32,12 +32,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("crawler")
 
 # ===== 配置 =====
-MAX_CONCURRENT_PAGES = 5
-MAX_CONCURRENT_IMAGES = 15
-RANDOM_DELAY_MIN = 1.0
-RANDOM_DELAY_MAX = 3.0
+MAX_CONCURRENT_PAGES = 3       # 3页并发 (防限流)
+MAX_CONCURRENT_IMAGES = 10     # 10张图片并发 (防限流)
+RANDOM_DELAY_MIN = 2.0        # 随机延迟 2-5秒 (防反爬)
+RANDOM_DELAY_MAX = 5.0
 PAGE_TIMEOUT = 30000
-CRAWL_PAGES = 20  # 默认爬取最新20页
+CRAWL_PAGES = 400             # 默认爬取400页
 
 R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
@@ -78,15 +78,21 @@ def upload_bytes_to_r2(data, r2_key):
         return False
 
 
-# ===== D1 判重+写入 =====
-def is_md5_exists(md5_hash):
-    try:
-        result = d1_query("SELECT id FROM girls_pic_haixiu WHERE md5_hash = ?", [md5_hash])
-        return len(result) > 0
-    except Exception as e:
-        logger.error(f"md5 check failed: {e}")
-        return False
+# ===== D1 批量判重+写入 =====
+_existing_md5 = set()  # 内存缓存, 启动时一次性加载
 
+def load_existing_md5():
+    """启动时一次性查所有 md5_hash, 后续在内存里判重 (避免每张图查一次D1)"""
+    global _existing_md5
+    try:
+        result = d1_query("SELECT md5_hash FROM girls_pic_haixiu WHERE md5_hash IS NOT NULL")
+        _existing_md5 = {r['md5_hash'] for r in result}
+        logger.info(f"loaded {len(_existing_md5)} existing md5 hashes")
+    except Exception as e:
+        logger.error(f"load md5 failed: {e}")
+
+def is_md5_exists(md5_hash):
+    return md5_hash in _existing_md5
 
 def save_to_d1(title, url, r2_key, md5_hash):
     try:
@@ -95,6 +101,7 @@ def save_to_d1(title, url, r2_key, md5_hash):
             "VALUES (?, ?, 0, 0, ?, 'qingbuyaohaixiu', ?, datetime('now'), 'github-actions')",
             [title, url, r2_key, md5_hash]
         )
+        _existing_md5.add(md5_hash)  # 加到内存set, 防止同批次重复
         logger.info(f"saved: {title}")
         return True
     except Exception as e:
@@ -185,6 +192,9 @@ async def crawl_page(context, session, page_num, sem):
 async def main():
     pages = int(sys.argv[1]) if len(sys.argv) > 1 else CRAWL_PAGES
     logger.info(f"=== crawler start: {pages} pages ===")
+
+    # 批量加载已有 md5 (避免每张图查一次 D1)
+    load_existing_md5()
 
     sem = asyncio.Semaphore(MAX_CONCURRENT_PAGES)
 
