@@ -1,11 +1,12 @@
 name: backup-d1 (D1数据库备份到R2)
 
-# 每天北京时间凌晨2点 (18:00 UTC) 导出 D1 -> R2, 替代原 qcloud 的 MySQL 备份
-# 保留30天, 超期自动清理; 备份位置: R2://image/backup/girlpic_d1/
+# 每6小时备份一次, 覆盖R2单个最新文件: backup/girlpic_d1/girlpic_d1_latest.sql
+# D1 export ~8MB/10s, 频繁备份+覆盖最新, 不堆积历史文件
+# 恢复方法: npx wrangler d1 execute zdw --file=girlpic_d1_latest.sql --remote
 
 on:
   schedule:
-    - cron: '0 18 * * *'
+    - cron: '0 0,6,12,18 * * *'
   push:
     paths: ['.github/workflows/backup-d1.yml']
   workflow_dispatch:
@@ -27,12 +28,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ env.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT_ID }}
         run: |
-          DATE=$(date -u +"%Y-%m-%d")
-          npx wrangler d1 export zdw --remote --output="girlpic_d1_${DATE}.sql"
-          ls -lh "girlpic_d1_${DATE}.sql"
-          echo "BACKUP_FILE=girlpic_d1_${DATE}.sql" >> $GITHUB_ENV
+          npx wrangler d1 export zdw --remote --output="girlpic_d1_latest.sql"
+          ls -lh girlpic_d1_latest.sql
 
-      - name: upload-to-r2
+      - name: upload-to-r2 (overwrite latest)
         env:
           AWS_ACCESS_KEY_ID: ${{ env.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ env.R2_SECRET_ACCESS_KEY }}
@@ -40,10 +39,10 @@ jobs:
           R2_BUCKET: ${{ env.R2_BUCKET_NAME }}
           R2_ENDPOINT: https://${{ env.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
-          aws s3 cp "${BACKUP_FILE}" "s3://${R2_BUCKET}/backup/girlpic_d1/${BACKUP_FILE}" --endpoint-url "${R2_ENDPOINT}"
-          echo "uploaded: s3://${R2_BUCKET}/backup/girlpic_d1/${BACKUP_FILE}"
+          aws s3 cp girlpic_d1_latest.sql "s3://${R2_BUCKET}/backup/girlpic_d1/girlpic_d1_latest.sql" --endpoint-url "${R2_ENDPOINT}"
+          echo "uploaded (overwrite): s3://${R2_BUCKET}/backup/girlpic_d1/girlpic_d1_latest.sql"
 
-      - name: cleanup-old-backups
+      - name: cleanup-old-dated-files
         env:
           AWS_ACCESS_KEY_ID: ${{ env.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ env.R2_SECRET_ACCESS_KEY }}
@@ -51,14 +50,11 @@ jobs:
           R2_BUCKET: ${{ env.R2_BUCKET_NAME }}
           R2_ENDPOINT: https://${{ env.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
-          CUTOFF=$(date -u -d "30 days ago" +"%Y-%m-%d")
-          echo "cleanup backups older than $CUTOFF"
           aws s3api list-objects-v2 --bucket "${R2_BUCKET}" --prefix "backup/girlpic_d1/" \
             --endpoint-url "${R2_ENDPOINT}" --query 'Contents[].Key' --output text | tr '\t' '\n' | while read key; do
             [ -z "$key" ] && continue
-            fdate=$(echo "$key" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
-            if [ -n "$fdate" ] && [[ "$fdate" < "$CUTOFF" ]]; then
+            if [ "$key" != "backup/girlpic_d1/girlpic_d1_latest.sql" ]; then
               aws s3 rm "s3://${R2_BUCKET}/${key}" --endpoint-url "${R2_ENDPOINT}"
-              echo "deleted: $key"
+              echo "removed old: $key"
             fi
           done
