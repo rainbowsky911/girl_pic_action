@@ -1,13 +1,13 @@
 name: backup-d1 (D1数据库备份到R2)
 
-# 每天北京时间凌晨2点 (18:00 UTC) 备份一次 D1 -> R2
+# 每3小时备份一次 D1 -> R2 (同一天8次覆盖同一个带日期文件, 每天只留1个文件)
 # 文件名带日期: girlpic_d1_YYYY-MM-DD.sql, 保留30天, 一个月约30-31个文件
 # 备份位置: R2://image/backup/girlpic_d1/
 # 恢复方法: npx wrangler d1 execute zdw --file=girlpic_d1_YYYY-MM-DD.sql --remote
 
 on:
   schedule:
-    - cron: '0 18 * * *'
+    - cron: '0 */3 * * *'
   push:
     paths: ['.github/workflows/backup-d1.yml']
   workflow_dispatch:
