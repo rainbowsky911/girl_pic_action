@@ -35,4 +35,4 @@ jobs:
         run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
 
       - name: run-crawler
-        run: python scripts/tasks/crawler_onetime.py ${{ github.event.inputs.pages || '20' }}
+        run: python scripts/tasks/crawler_onetime.py ${{ github.event.inputs.pages || '400' }}
