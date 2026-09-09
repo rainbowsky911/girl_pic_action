@@ -1,0 +1,64 @@
+name: backup-d1 (D1数据库备份到R2)
+
+# 每天北京时间凌晨2点 (18:00 UTC) 导出 D1 -> R2, 替代原 qcloud 的 MySQL 备份
+# 保留30天, 超期自动清理; 备份位置: R2://image/backup/girlpic_d1/
+
+on:
+  schedule:
+    - cron: '0 18 * * *'
+  push:
+    paths: ['.github/workflows/backup-d1.yml']
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: load-secrets
+        run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
+
+      - name: export-d1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT_ID }}
+        run: |
+          DATE=$(date -u +"%Y-%m-%d")
+          npx wrangler d1 export zdw --remote --output="girlpic_d1_${DATE}.sql"
+          ls -lh "girlpic_d1_${DATE}.sql"
+          echo "BACKUP_FILE=girlpic_d1_${DATE}.sql" >> $GITHUB_ENV
+
+      - name: upload-to-r2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_BUCKET: ${{ env.R2_BUCKET_NAME }}
+          R2_ENDPOINT: https://${{ env.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          aws s3 cp "${BACKUP_FILE}" "s3://${R2_BUCKET}/backup/girlpic_d1/${BACKUP_FILE}" --endpoint-url "${R2_ENDPOINT}"
+          echo "uploaded: s3://${R2_BUCKET}/backup/girlpic_d1/${BACKUP_FILE}"
+
+      - name: cleanup-old-backups
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_BUCKET: ${{ env.R2_BUCKET_NAME }}
+          R2_ENDPOINT: https://${{ env.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          CUTOFF=$(date -u -d "30 days ago" +"%Y-%m-%d")
+          echo "cleanup backups older than $CUTOFF"
+          aws s3api list-objects-v2 --bucket "${R2_BUCKET}" --prefix "backup/girlpic_d1/" \
+            --endpoint-url "${R2_ENDPOINT}" --query 'Contents[].Key' --output text | tr '\t' '\n' | while read key; do
+            [ -z "$key" ] && continue
+            fdate=$(echo "$key" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
+            if [ -n "$fdate" ] && [[ "$fdate" < "$CUTOFF" ]]; then
+              aws s3 rm "s3://${R2_BUCKET}/${key}" --endpoint-url "${R2_ENDPOINT}"
+              echo "deleted: $key"
+            fi
+          done
