@@ -10,6 +10,7 @@ import sys
 import json
 from pathlib import Path
 from time import sleep
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from bs4 import BeautifulSoup
@@ -43,22 +44,29 @@ cookies = {
     'JSESSIONID': '4d3ee96c-c941-4bd3-8ad9-3a2d018e8e1d'
 }
 
+# 复用连接 (keep-alive) 提速; requests.Session 线程安全, 可并发调用
+session = requests.Session()
+session.headers.update(headers)
+session.cookies.update(cookies)
+
+# 评论详情页并发数 (防限流, 留余量)
+MAX_WORKERS = 5
+
 
 # ====== 获取评论详情 ======
 def fetch_comments_from_html(question_id: int):
+    """抓取并解析问题详情页评论, 返回 [(question_id, content, commenter, comment_time), ...]"""
     url = f'http://hefei.bainaohui.cn/community/question/p/detail/{question_id}'
     try:
-        resp = requests.get(url, headers=headers, cookies=cookies, timeout=20)
+        resp = session.get(url, timeout=20)
         soup = BeautifulSoup(resp.text, 'html.parser')
 
         comment_blocks = soup.select('.form-group')
         if not comment_blocks:
             print(f"[√] 无评论: question_id={question_id}")
-            return
+            return []
 
-        # 收集所有评论, 分块批量插入 (D1 单查询最多 100 个绑定变量, 评论 4 列 -> 每块 20 条)
-        all_rows = []
-        all_params = []
+        rows = []
         for block in comment_blocks:
             content_tag = block.select_one('.detail-body.jieda-body.photos')
             content = content_tag.get_text(strip=True) if content_tag else ''
@@ -69,22 +77,27 @@ def fetch_comments_from_html(question_id: int):
             time_tag = block.select_one('.detail-hits span')
             comment_time = time_tag.get_text(strip=True) if time_tag else None
 
-            all_rows.append("(?,?,?,?)")
-            all_params.extend([question_id, content, nickname, comment_time])
+            rows.append((question_id, content, nickname, comment_time))
 
-        CHUNK = 20
-        for i in range(0, len(all_rows), CHUNK):
-            chunk_rows = all_rows[i:i + CHUNK]
-            chunk_params = all_params[i * 4:(i + CHUNK) * 4]
-            sql = (
-                "INSERT INTO comments (question_id, content, commenter, comment_time) "
-                f"VALUES {','.join(chunk_rows)}"
-            )
-            d1_execute(sql, chunk_params)
         print(f"[√] 成功解析评论: question_id={question_id}, 数量={len(comment_blocks)}")
+        return rows
 
     except Exception as e:
         print(f"[×] 解析失败: question_id={question_id}, 错误={e}")
+        return []
+
+
+def batch_insert_comments(all_rows):
+    """跨问题批量写评论 (D1 限 100 变量, 评论 4 列 -> 每块 20 条)"""
+    CHUNK = 20
+    for i in range(0, len(all_rows), CHUNK):
+        chunk = all_rows[i:i + CHUNK]
+        placeholders = ",".join(["(?,?,?,?)"] * len(chunk))
+        sql = (
+            "INSERT INTO comments (question_id, content, commenter, comment_time) "
+            f"VALUES {placeholders}"
+        )
+        d1_execute(sql, [v for row in chunk for v in row])
 
 
 # ====== 爬取问题列表 ======
@@ -105,10 +118,8 @@ def fetch_questions():
         }
 
         try:
-            resp = requests.post(
+            resp = session.post(
                 'http://hefei.bainaohui.cn/community/question/p/list',
-                headers=headers,
-                cookies=cookies,
                 data=data,
                 timeout=10
             )
@@ -143,12 +154,16 @@ def fetch_questions():
                     existing_qids.add(it["id"])
                 print(f"[√] 本页插入 {len(new_items)} 条新问题")
 
-            # 补抓缺失的评论 (已有评论的跳过, 缺失的抓取)
-            for item in rows:
-                if item["id"] in qids_with_comments:
-                    continue
-                fetch_comments_from_html(item["id"])
-                qids_with_comments.add(item["id"])
+            # 补抓缺失的评论 (已有评论的跳过, 缺失的并发抓取后批量写 D1)
+            missing = [item["id"] for item in rows if item["id"] not in qids_with_comments]
+            if missing:
+                all_rows = []
+                with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+                    futures = {ex.submit(fetch_comments_from_html, qid): qid for qid in missing}
+                    for fut in as_completed(futures):
+                        all_rows.extend(fut.result())
+                        qids_with_comments.add(futures[fut])
+                batch_insert_comments(all_rows)
 
             page_num += 1
             sleep(1)
