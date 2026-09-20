@@ -1,11 +1,11 @@
 name: bainuohui-spider (百诺汇爬虫)
 
-# 百诺汇问答爬虫: 每小时执行一次
+# 百诺汇问答爬虫: 每小时12分执行一次 (避开整点高峰)
 # 爬取 hefei.bainaohui.cn 问答列表, 新问题入库 D1, 补抓缺失评论
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '12 * * * *'
   push:
     paths:
       - '.github/workflows/bainuohui-spider.yml'
