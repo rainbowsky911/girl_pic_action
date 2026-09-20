@@ -1,0 +1,39 @@
+name: bainuohui-spider (百诺汇爬虫)
+
+# 百诺汇问答爬虫: 每2小时执行一次
+# 爬取 hefei.bainaohui.cn 问答列表, 新问题入库 D1, 补抓缺失评论
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  push:
+    paths:
+      - '.github/workflows/bainuohui-spider.yml'
+      - 'scripts/tasks/hefei996_spider.py'
+      - 'scripts/tasks/d1_client.py'
+  workflow_dispatch:
+
+jobs:
+  spider:
+    name: bainuohui-spider
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: '1'
+      TZ: Asia/Shanghai
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: install-deps
+        run: pip install requests beautifulsoup4 httpx
+
+      - name: load-secrets
+        run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
+
+      - name: run-spider
+        run: python scripts/tasks/hefei996_spider.py
