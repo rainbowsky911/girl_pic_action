@@ -1,4 +1,4 @@
-name: crawler (爬虫)
+name: 爬虫·图片爬取
 
 # 爬虫: 每天执行一次
 # 用 playwright 爬取400页, 上传 R2, 写入 D1
@@ -8,18 +8,18 @@ on:
   schedule:
     - cron: '0 0 * * *'
   push:
-    paths: ['.github/workflows/crawler.yml', 'scripts/tasks/crawler_onetime.py', 'scripts/tasks/d1_client.py']
+    paths: ['.github/workflows/spider-girl-pic.yml', 'scripts/tasks/crawler_onetime.py', 'scripts/tasks/d1_client.py']
   workflow_dispatch:
     inputs:
       pages:
         description: '爬取页数 (默认400)'
         required: false
-        default: '400'
+        default: '500'
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 

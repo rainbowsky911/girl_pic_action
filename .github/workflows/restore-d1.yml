@@ -1,0 +1,85 @@
+name: 恢复·D1数据库
+
+# 手动触发: 从 R2 下载指定日期的 D1 备份, 导入到 D1 数据库 zdw
+# 恢复到已有数据的库时, 勾选"先清空现有表"避免主键冲突
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: '备份日期 (YYYY-MM-DD, 如 2026-10-26)'
+        required: true
+      drop_existing:
+        description: '先清空现有表(恢复到已有数据的库时需要, 空库不需要勾)'
+        type: boolean
+        default: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: '1'
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: load-secrets
+        run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
+
+      - name: download-backup
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_BUCKET: ${{ env.R2_BUCKET_NAME }}
+          R2_ENDPOINT: https://${{ env.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          FILE="girlpic_d1_${{ inputs.date }}.sql"
+          echo "下载备份: s3://${R2_BUCKET}/backup/girlpic_d1/${FILE}"
+          aws s3 cp "s3://${R2_BUCKET}/backup/girlpic_d1/${FILE}" . --endpoint-url "${R2_ENDPOINT}"
+          ls -lh "${FILE}"
+          wc -l "${FILE}"
+
+      - name: drop-tables
+        if: ${{ inputs.drop_existing }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT_ID }}
+        run: |
+          echo "清空现有表..."
+          npx wrangler d1 execute zdw --remote --command="
+            DROP TABLE IF EXISTS girls_pic;
+            DROP TABLE IF EXISTS girls_pic_haixiu;
+            DROP TABLE IF EXISTS questions;
+            DROP TABLE IF EXISTS comments;
+          "
+
+      - name: import-backup
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT_ID }}
+        run: |
+          FILE="girlpic_d1_${{ inputs.date }}.sql"
+          echo "导入备份: ${FILE}"
+          npx wrangler d1 execute zdw --file="${FILE}" --remote
+          echo "✅ 恢复完成"
+
+      - name: verify
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT_ID }}
+        run: |
+          echo "验证: 各表行数"
+          npx wrangler d1 execute zdw --remote --command="
+            SELECT 'girls_pic' AS tbl, COUNT(*) AS cnt FROM girls_pic
+            UNION ALL
+            SELECT 'girls_pic_haixiu', COUNT(*) FROM girls_pic_haixiu
+            UNION ALL
+            SELECT 'questions', COUNT(*) FROM questions
+            UNION ALL
+            SELECT 'comments', COUNT(*) FROM comments;
+          "

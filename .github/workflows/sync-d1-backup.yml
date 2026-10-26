@@ -1,4 +1,4 @@
-name: backup-d1 (D1数据库备份到R2)
+name: 同步·D1数据库备份
 
 # 每3小时备份一次 D1 -> R2 (同一天8次覆盖同一个带日期文件, 每天只留1个文件)
 # 文件名带日期: girlpic_d1_YYYY-MM-DD.sql, 保留30天, 一个月约30-31个文件
@@ -9,7 +9,7 @@ on:
   schedule:
     - cron: '0 */3 * * *'
   push:
-    paths: ['.github/workflows/backup-d1.yml']
+    paths: ['.github/workflows/sync-d1-backup.yml']
   workflow_dispatch:
 
 jobs:

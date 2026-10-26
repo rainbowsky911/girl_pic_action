@@ -1,0 +1,59 @@
+name: 同步·R2→七牛镜像
+
+# R2 镜像到七牛（最终一致·含删除）
+# 每天北京时间 03:00 和 04:00 (UTC 19:00 / 20:00) 各跑一次
+# 跑两遍是为了第一遍失败/超时还有第二遍兜底
+# 迁移自 afilmory-miniapp 私有仓库, 改为公开仓库免费运行
+
+on:
+  schedule:
+    - cron: '0 19 * * *'
+    - cron: '0 20 * * *'
+  push:
+    paths:
+      - '.github/workflows/sync-r2-to-qiniu.yml'
+      - 'scripts/afilmory/tools/sync-r2-to-qiniu.py'
+      - 'scripts/afilmory/config.py'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '试运行（只列待上传/删除清单，不传输）'
+        type: boolean
+        default: false
+      no_delete:
+        description: '只同步上传，不做删除（保守模式）'
+        type: boolean
+        default: false
+
+jobs:
+  mirror-r2-to-qiniu:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: r2-to-qiniu-sync
+      cancel-in-progress: false
+
+    timeout-minutes: 240
+    env:
+      PYTHONUNBUFFERED: '1'
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: install-deps
+        run: pip install -r requirements.txt
+
+      - name: load-secrets
+        run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
+
+      - name: run-mirror
+        run: |
+          python scripts/afilmory/tools/sync-r2-to-qiniu.py \
+            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            ${{ inputs.no_delete == true && '--no-delete' || '' }}

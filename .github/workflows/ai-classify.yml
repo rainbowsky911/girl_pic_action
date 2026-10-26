@@ -1,8 +1,8 @@
-name: ai-classify (AI识别)
+name: AI识别
 
 on:
   schedule:
-    - cron: '0 10 * * *'
+    - cron: '0 11 * * *'
   push:
     paths: ['.github/workflows/ai-classify.yml', 'scripts/tasks/']
   workflow_dispatch:

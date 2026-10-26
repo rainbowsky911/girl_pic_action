@@ -1,0 +1,47 @@
+name: 生成·照片清单(增量)
+
+# 照片清单 Manifest 生成（增量·每30分钟）
+# 扫描 R2 源照片, 生成缩略图/预览图 + manifest.json + photo-index.json, 上传到 R2
+# 迁移自 afilmory-miniapp 私有仓库, 改为公开仓库免费运行
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  push:
+    paths:
+      - '.github/workflows/gen-photos-manifest.yml'
+      - 'scripts/afilmory/photos/photo-pipeline.py'
+      - 'scripts/afilmory/photos/generate-manifest.py'
+      - 'scripts/afilmory/photos/upload-manifest.py'
+      - 'scripts/afilmory/config.py'
+  workflow_dispatch:
+
+jobs:
+  manifest-photos:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: photo-pipeline
+      cancel-in-progress: false
+
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: '1'
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: install-deps
+        run: pip install -r requirements.txt
+
+      - name: load-secrets
+        run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
+
+      - name: run-photo-pipeline
+        run: python scripts/afilmory/photos/photo-pipeline.py

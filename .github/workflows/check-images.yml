@@ -1,4 +1,4 @@
-name: check-images (安全检查)
+name: 安全检查
 
 on:
   schedule:

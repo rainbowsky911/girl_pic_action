@@ -1,0 +1,51 @@
+name: 同步·R2→B2备份
+
+# R2 备份到 B2（增量·只增不删）
+# 每天北京时间 02:00 (UTC 18:00) 执行一次
+# 增量同步：只复制 R2 有、B2 无的对象，每天补齐当天新增内容
+# 迁移自 afilmory-miniapp 私有仓库, 改为公开仓库免费运行
+
+on:
+  schedule:
+    - cron: '0 18 * * *'
+  push:
+    paths:
+      - '.github/workflows/sync-r2-to-b2.yml'
+      - 'scripts/afilmory/tools/sync-r2-to-b2.py'
+      - 'scripts/afilmory/config.py'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '试运行（只列待同步文件，不传输）'
+        type: boolean
+        default: false
+
+jobs:
+  backup-r2-to-b2:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: r2-to-b2-sync
+      cancel-in-progress: false
+
+    timeout-minutes: 60
+    env:
+      PYTHONUNBUFFERED: '1'
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: install-deps
+        run: pip install -r requirements.txt
+
+      - name: load-secrets
+        run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
+
+      - name: run-sync
+        run: python scripts/afilmory/tools/sync-r2-to-b2.py ${{ inputs.dry_run == true && '--dry-run' || '' }}

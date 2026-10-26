@@ -1,0 +1,47 @@
+name: 生成·照片清单(全量重建)
+
+# 照片清单 Manifest 全量重建（每3天）
+# --force: 删除所有缩略图/预览图后重新生成
+# 迁移自 afilmory-miniapp 私有仓库, 改为公开仓库免费运行
+
+on:
+  schedule:
+    - cron: '0 21 */3 * *'
+  push:
+    paths:
+      - '.github/workflows/gen-photos-rebuild.yml'
+      - 'scripts/afilmory/photos/photo-pipeline.py'
+      - 'scripts/afilmory/photos/generate-manifest.py'
+      - 'scripts/afilmory/photos/upload-manifest.py'
+      - 'scripts/afilmory/config.py'
+  workflow_dispatch:
+
+jobs:
+  manifest-photos-rebuild:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: photo-pipeline
+      cancel-in-progress: false
+
+    timeout-minutes: 60
+    env:
+      PYTHONUNBUFFERED: '1'
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: install-deps
+        run: pip install -r requirements.txt
+
+      - name: load-secrets
+        run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
+
+      - name: run-photo-pipeline-force
+        run: python scripts/afilmory/photos/photo-pipeline.py --force

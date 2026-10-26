@@ -34,10 +34,10 @@ logger = logging.getLogger("crawler")
 # ===== 配置 =====
 MAX_CONCURRENT_PAGES = 3       # 3页并发 (防限流)
 MAX_CONCURRENT_IMAGES = 10     # 10张图片并发 (防限流)
-RANDOM_DELAY_MIN = 2.0        # 随机延迟 2-5秒 (防反爬)
-RANDOM_DELAY_MAX = 5.0
+RANDOM_DELAY_MIN = 2.0        # 随机延迟 2-6秒 (防反爬)
+RANDOM_DELAY_MAX = 6.0
 PAGE_TIMEOUT = 30000
-CRAWL_PAGES = 400             # 默认爬取400页
+CRAWL_PAGES = 500             # 默认爬取500页
 
 R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")

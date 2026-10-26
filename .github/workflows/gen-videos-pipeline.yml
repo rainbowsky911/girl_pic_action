@@ -1,0 +1,51 @@
+name: 生成·视频处理(B2)
+
+# B2 视频处理管线（压缩·抽帧·清单）
+# 每天 UTC 17:00（北京时间 01:00）执行一次
+# 增量：仅变化时压缩/抽帧/生成清单
+# 迁移自 afilmory-miniapp 私有仓库, 改为公开仓库免费运行
+
+on:
+  schedule:
+    - cron: '0 17 * * *'
+  push:
+    paths:
+      - '.github/workflows/gen-videos-pipeline.yml'
+      - 'scripts/afilmory/videos/video-pipeline-b2.py'
+      - 'scripts/afilmory/videos/compress-videos-b2.py'
+      - 'scripts/afilmory/videos/generate-video-manifest-b2.py'
+      - 'scripts/afilmory/videos/upload-videos-manifest-b2.py'
+      - 'scripts/afilmory/config.py'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '强制全量重建（忽略状态、删除旧产物后重做；用于修复/补压缩，慎用）'
+        type: boolean
+        default: false
+
+jobs:
+  pipeline-videos-b2:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 120
+    env:
+      PYTHONUNBUFFERED: '1'
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: install-deps
+        run: pip install -r requirements.txt
+        # ubuntu-latest 自带 ffmpeg/ffprobe，视频抽帧/探测/压缩直接用系统的
+
+      - name: load-secrets
+        run: echo '${{ secrets.SECRETS_JSON }}' | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' >> $GITHUB_ENV
+
+      - name: run-video-pipeline
+        run: python scripts/afilmory/videos/video-pipeline-b2.py ${{ inputs.force == true && '--force' || '' }}

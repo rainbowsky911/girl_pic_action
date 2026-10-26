@@ -1,3 +1,6 @@
 httpx
 boto3
 aiohttp
+Pillow
+pillow-heif
+imageio-ffmpeg

@@ -7,3 +7,11 @@ secrets*.json
 .env
 *.key
 cookie.json
+.idea/
+
+# afilmory CI 产物（脚本生成的清单/临时文件，不入库）
+scripts/afilmory/manifest.json
+scripts/afilmory/photo-index.json
+scripts/afilmory/videos-b2.json
+scripts/afilmory/*upload_progress*.json
+scripts/afilmory/*b2_upload_progress*.json
